@@ -4,6 +4,9 @@ from .trident_conv import MultiScaleTridentConv
 
 
 class ResidualBlock(nn.Module):
+    # in_planes: 输入特征图的通道数（planes 在这里是通道 channel 的意思）。
+    # planes: 在这个块内部以及最终输出的特征图的通道数。
+    # dilation=1: 卷积核的膨胀率，用于扩大感受野而不增加参数，常用于分割任务 dilation=1 就是普通卷积
     def __init__(self, in_planes, planes, norm_layer=nn.InstanceNorm2d, stride=1, dilation=1,
                  ):
         super(ResidualBlock, self).__init__()
@@ -19,7 +22,7 @@ class ResidualBlock(nn.Module):
         if not stride == 1 or in_planes != planes:
             self.norm3 = norm_layer(planes)
 
-        if stride == 1 and in_planes == planes:
+        if stride == 1 and in_planes == planes: # 步长和输入输出大小来确定是否在下采样，下采样的方式就是标准的步长变化
             self.downsample = None
         else:
             self.downsample = nn.Sequential(
