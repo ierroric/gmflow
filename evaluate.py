@@ -104,6 +104,113 @@ def create_kitti_submission(model,
             frame_utils.writeFlowKITTI(output_filename, flow)
 
 
+##################参照之前写的光流验证来写一个 用深度模仿光流的验证   注意后续的修改 2025年8月22日 
+@torch.no_grad()
+def validate_fppdic_depth(model,
+                    with_speed_metric=False,
+                    attn_splits_list=False,
+                    corr_radius_list=False,
+                    prop_radius_list=False,
+                    ):
+    """ 验证集是从数据集中分离出来的一部分内容 参考chair的验证集编写，用不到的代码我就直接删除了 """
+    model.eval()
+    epe_list = []
+    results = {}
+
+    val_dataset = data.fppdicdepth(split='val')
+
+    print('Number of validation image pairs: %d' % len(val_dataset))
+
+    for val_id in range(len(val_dataset)):
+        image1, image2, flow_gt, _ = val_dataset[val_id]
+
+        image1 = image1[None].cuda()
+        image2 = image2[None].cuda()
+
+        results_dict = model(image1, image2,
+                             attn_splits_list=attn_splits_list,
+                             corr_radius_list=corr_radius_list,
+                             prop_radius_list=prop_radius_list,
+                             )
+
+        flow_pr = results_dict['flow_preds'][-1]  # [B, 2, H, W]
+
+        assert flow_pr.size()[-2:] == flow_gt.size()[-2:]
+
+        epe = torch.sum((flow_pr[0].cpu() - flow_gt) ** 2, dim=0).sqrt()
+        epe_list.append(epe.view(-1).numpy())
+
+    epe_all = np.concatenate(epe_list)
+    epe = np.mean(epe_all)
+    px1 = np.mean(epe_all > 1)
+    px3 = np.mean(epe_all > 3)
+    px5 = np.mean(epe_all > 5)
+    print("Validation fppdic EPE: %.3f, 1px: %.3f, 3px: %.3f, 5px: %.3f" % (epe, px1, px3, px5))
+    results['fppdic8_23_epe'] = epe
+    results['fppdic8_23_1px'] = px1
+    results['fppdic8_23_3px'] = px3
+    results['fppdic8_23_5px'] = px5
+
+    return results
+
+##################2025年8月22日
+
+
+
+##################代码误删重新编写 本来就是删掉一部分代码的chair验证集代码 2025年8月20日
+@torch.no_grad()
+def validate_fppdic(model,
+                    with_speed_metric=False,
+                    attn_splits_list=False,
+                    corr_radius_list=False,
+                    prop_radius_list=False,
+                    ):
+    """ 验证集是从数据集中分离出来的一部分内容 参考chair的验证集编写，用不到的代码我就直接删除了 """
+    model.eval()
+    epe_list = []
+    results = {}
+
+    val_dataset = data.fppdicflow(split='val')
+
+    print('Number of validation image pairs: %d' % len(val_dataset))
+
+    for val_id in range(len(val_dataset)):
+        image1, image2, flow_gt, _ = val_dataset[val_id]
+
+        image1 = image1[None].cuda()
+        image2 = image2[None].cuda()
+
+        results_dict = model(image1, image2,
+                             attn_splits_list=attn_splits_list,
+                             corr_radius_list=corr_radius_list,
+                             prop_radius_list=prop_radius_list,
+                             )
+
+        flow_pr = results_dict['flow_preds'][-1]  # [B, 2, H, W]
+
+        assert flow_pr.size()[-2:] == flow_gt.size()[-2:]
+
+        epe = torch.sum((flow_pr[0].cpu() - flow_gt) ** 2, dim=0).sqrt()
+        epe_list.append(epe.view(-1).numpy())
+
+    epe_all = np.concatenate(epe_list)
+    epe = np.mean(epe_all)
+    px1 = np.mean(epe_all > 1)
+    px3 = np.mean(epe_all > 3)
+    px5 = np.mean(epe_all > 5)
+    print("Validation fppdic EPE: %.3f, 1px: %.3f, 3px: %.3f, 5px: %.3f" % (epe, px1, px3, px5))
+    results['fppdic_epe'] = epe
+    results['fppdic_1px'] = px1
+    results['fppdic_3px'] = px3
+    results['fppdic_5px'] = px5
+
+    return results
+
+##################代码误删重新编写 2025年8月20日
+
+
+
+
 @torch.no_grad()
 def validate_chairs(model,
                     with_speed_metric=False,

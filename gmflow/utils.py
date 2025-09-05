@@ -62,7 +62,7 @@ def normalize_img(img0, img1):
 
     return img0, img1
 
-
+#todo 这里是一个改进点，在这里用的是正余弦位置编码，可以转换成相对位置编码 2025年9月3日
 def feature_add_position(feature0, feature1, attn_splits, feature_channels):
     pos_enc = PositionEmbeddingSine(num_pos_feats=feature_channels // 2)
 

@@ -267,6 +267,188 @@ class HD1K(FlowDataset):
 
             seq_ix += 1
 
+#处理.exr的图片和光流2025年8月16日 2025年8月19日增加验证数据和训练数据的区分
+class fppdicflow(FlowDataset):
+    """
+    2025年8月16日
+    A dataset class for loading Blender-rendered EXR image and flow data.
+    It reads the dataset structure from a pre-generated index file for fast initialization.
+    """
+    def __init__(self, aug_params=None, 
+                 root=r'../dataset', 
+                 index_ext='.txt',
+                 split='train'):
+        super(fppdicflow, self).__init__(aug_params)
+
+        #根目录
+        self.root = root
+        #train 和val索引路径
+        index = split + index_ext
+        index_file_path = osp.join(self.root,index)
+        if not osp.exists(index_file_path):
+            raise FileNotFoundError(f"Index file not found: {index_file_path}")
+        
+        #读索引并生成image flow list
+        with open(index_file_path, 'r') as f:
+            for line in f:
+                # 移除换行符并分离逗号
+                line = line.replace('\\', '/')
+                parts = line.strip().split(',')
+                if len(parts) == 3:
+                    #相对地址join到根目录中
+                    img1_path = osp.join(self.root,parts[0])
+                    img2_path = osp.join(self.root,parts[1])
+                    flow_path = osp.join(self.root,parts[2])
+
+                    self.image_list.append([img1_path,img2_path])
+                    self.flow_list.append(flow_path)
+        
+        print(f"Loaded {len(self.image_list)} samples from index : {split}")
+
+    def __getitem__(self, index):
+        """
+        Overrides the parent __getitem__ to correctly handle float32 EXR data.
+        """
+        # 我不太清楚下面seed代码的逻辑 先暂时放过来
+        if not self.init_seed:
+            worker_info = torch.utils.data.get_worker_info()
+            if worker_info is not None:
+                torch.manual_seed(worker_info.id)
+                np.random.seed(worker_info.id)
+                random.seed(worker_info.id)
+                self.init_seed = True
+
+        index = index % len(self.image_list) # 这种计数方式真的很有趣
+        #读exr文件
+        img1 = frame_utils.read_gen(self.image_list[index][0])
+        img2 = frame_utils.read_gen(self.image_list[index][1])
+        flow = frame_utils.read_gen(self.flow_list[index])
+
+        #数据都是float32 比基类的uint8
+        img1 = np.array(img1).astype(np.float32)
+        img2 = np.array(img2).astype(np.float32)
+        flow = np.array(flow).astype(np.float32)
+
+        #由于img1和img2 都只是单通道 只取第一个通道 (R通道) 并增加一个维度，使其形状变为 (H, W, 1)
+        #不保证正确
+        #img1 = img1[:, :, 0:1] 
+        #img2 = img2[:, :, 0:1]
+    
+
+
+        # 得好好考虑本身是3维度的增强处理1维度的信息时是否需要特判
+        if self.augmentor is not None:
+            img1, img2, flow = self.augmentor(img1, img2, flow)
+
+        # 主要时 hwc 转换为chw
+        img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
+        img2 = torch.from_numpy(img2).permute(2, 0, 1).float()
+        flow = torch.from_numpy(flow).permute(2, 0, 1).float()
+
+        # Create a validity mask. Here we assume all pixels are valid.
+        valid = (flow[0].abs() < 1000) & (flow[1].abs() < 1000)
+        #return img1, img2, flow
+        return img1, img2, flow, valid.float()
+
+
+class fppdicdepth(FlowDataset):
+    """
+    2025年8月21日 我应该想办法写个继承
+    A dataset class for loading Blender-rendered EXR image and depth data.
+    It reads the dataset structure from a pre-generated index file for fast initialization.
+    """
+    def __init__(self, aug_params=None, 
+                 root=r'../dataset', 
+                 index_ext='.txt',
+                 split='train'):
+        super(fppdicdepth, self).__init__(aug_params)
+
+        #根目录
+        self.root = root
+        # 加一个depthlist 原本的基类中是没有的 2025年8月21日
+        #self.depth_list = [] 和基类冲突2025年8月22日
+        #train 和val索引路径
+        index = split + index_ext
+        index_file_path = osp.join(self.root,index)
+        if not osp.exists(index_file_path):
+            raise FileNotFoundError(f"Index file not found: {index_file_path}")
+        
+        #读索引并生成image depth list
+        with open(index_file_path, 'r') as f:
+            for line in f:
+                # 移除换行符并分离逗号
+                line = line.replace('\\', '/')
+                parts = line.strip().split(',')
+                if len(parts) == 4:
+                    #相对地址join到根目录中
+                    img1_path = osp.join(self.root,parts[0])
+                    img2_path = osp.join(self.root,parts[1])
+                    depth1_path = osp.join(self.root,parts[2])
+                    depth2_path = osp.join(self.root,parts[3])
+
+                    self.image_list.append([img1_path,img2_path])
+                    self.flow_list.append([depth1_path, depth2_path])
+        
+        print(f"Loaded {len(self.image_list)} samples from index : {split}")
+
+    def __getitem__(self, index):
+        """
+        Overrides the parent __getitem__ to correctly handle float32 EXR data.
+        """
+        # 我不太清楚下面seed代码的逻辑 先暂时放过来
+        if not self.init_seed:
+            worker_info = torch.utils.data.get_worker_info()
+            if worker_info is not None:
+                torch.manual_seed(worker_info.id)
+                np.random.seed(worker_info.id)
+                random.seed(worker_info.id)
+                self.init_seed = True
+
+        index = index % len(self.image_list) # 这种计数方式真的很有趣
+        #读exr文件 注意这里的图片虽然是3通道但三个通道内容相等，这里没改主要是还不太清楚怎么修改 todo 2025年8月21日
+        img1 = frame_utils.read_gen(self.image_list[index][0])
+        img2 = frame_utils.read_gen(self.image_list[index][1])
+        depth1= frame_utils.read_gen(self.flow_list[index][0])
+        
+        depth2 = frame_utils.read_gen(self.flow_list[index][1])
+
+        #数据都是float32 这里暂时将depth1 和 depth2 拼到一起成二维通道 类似光流进行处理
+        img1 = np.array(img1).astype(np.float32)
+        img2 = np.array(img2).astype(np.float32)
+        depth1 = np.array(depth1).astype(np.float32)
+        depth1 = depth1*100 # 从米级转换到厘米级 2025年8月23日
+        depth2 = np.array(depth2).astype(np.float32)
+        depth2 = depth2*100 # 从米级转换到厘米级 2025年8月23日
+
+        # 将两个深度图合并为两通道的flow
+        flow = np.concatenate([depth1, depth2], axis=-1)  # 形状变为 (H, W, 2)
+
+        #由于img1和img2 都只是单通道 只取第一个通道 (R通道) 并增加一个维度，使其形状变为 (H, W, 1)
+        #不保证正确
+        #img1 = img1[:, :, 0:1] 
+        #img2 = img2[:, :, 0:1]
+        ## 2025年8月21日
+        # # 如果深度图是3通道（但内容相同），取第一个通道
+        # if depth1.ndim == 3 and depth1.shape[2] == 3:
+        #     depth1 = depth1[:, :, 0]  # 取R通道（假设三通道值相同）
+        # if depth2.ndim == 3 and depth2.shape[2] == 3:
+        #     depth2 = depth2[:, :, 0]
+
+        # 得好好考虑本身是3维度的增强处理1维度的信息时是否需要特判
+        if self.augmentor is not None:
+            img1, img2, flow = self.augmentor(img1, img2, flow)
+
+        # 主要时 hwc 转换为chw
+        img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
+        img2 = torch.from_numpy(img2).permute(2, 0, 1).float()
+        flow = torch.from_numpy(flow).permute(2, 0, 1).float()
+
+        # Create a validity mask. Here we assume all pixels are valid.
+        valid = (flow[0].abs() < 1000) & (flow[1].abs() < 1000)
+        #return img1, img2, flow
+        return img1, img2, flow, valid.float()
+
+
 
 def build_train_dataset(args):
     """ Create the data loader for the corresponding training set """
@@ -274,6 +456,17 @@ def build_train_dataset(args):
         aug_params = {'crop_size': args.image_size, 'min_scale': -0.1, 'max_scale': 1.0, 'do_flip': True}
 
         train_dataset = FlyingChairs(aug_params, split='training')
+
+    #修改加入自己的数据集名字2025年8月16日
+    elif args.stage == 'fpp&dic':
+        aug_params = None
+        train_dataset = fppdicflow(aug_params)
+    
+    elif args.stage == 'fppdic_depth':
+        aug_params = None
+        train_dataset = fppdicdepth(aug_params)
+
+
 
     elif args.stage == 'things':
         aug_params = {'crop_size': args.image_size, 'min_scale': -0.4, 'max_scale': 0.8, 'do_flip': True}

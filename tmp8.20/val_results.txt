@@ -1,0 +1,80 @@
+step: 010000
+|           chairs_epe 
+|                0.372 
+
+step: 020000
+|           chairs_epe 
+|                0.375 
+
+step: 030000
+|           chairs_epe 
+|                0.352 
+
+step: 040000
+|           chairs_epe 
+|                0.369 
+
+step: 050000
+|           chairs_epe 
+|                0.366 
+
+step: 060000
+|           chairs_epe 
+|                0.372 
+
+step: 070000
+|           chairs_epe 
+|                0.367 
+
+step: 080000
+|           chairs_epe 
+|                0.366 
+
+step: 090000
+|           chairs_epe 
+|                0.367 
+
+step: 100000
+|           chairs_epe 
+|                0.368 
+
+step: 010000
+
+
+
+step: 020000
+
+
+
+step: 030000
+
+
+
+step: 040000
+
+
+
+step: 050000
+
+
+
+step: 060000
+
+
+
+step: 070000
+
+
+
+step: 080000
+
+
+
+step: 090000
+
+
+
+step: 100000
+
+
+

@@ -4,6 +4,9 @@ from os.path import *
 import re
 import cv2
 
+import OpenEXR
+import Imath
+
 TAG_CHAR = np.array([202021.25], np.float32)
 
 
@@ -114,9 +117,57 @@ def writeFlowKITTI(filename, uv):
     cv2.imwrite(filename, uv[..., ::-1])
 
 
+### 代码误删重新编写readExr部分，2025年8月20日 
+def readExr(filename):
+    """
+    输出图像文件:h*w*3 图像文件h*w*2
+    """
+    exr_file = OpenEXR.InputFile(filename)
+    header = exr_file.header()
+    dw = header["dataWindow"]
+    width = dw.max.x - dw.min.x + 1
+    height = dw.max.y - dw.min.y + 1
+    # 获取所有通道的名称
+    channels = header["channels"].keys()
+    # 判断是图像 (3通道) 还是光流 (2通道)
+    if len(channels) >= 3:
+        # 读取 RGB 通道
+        if all((c in channels for c in ('R', 'G', 'B'))):
+            pixel_type = header["channels"]["R"].type
+            channel_data = exr_file.channels(["R", "G", "B"], pixel_type)
+            r = np.frombuffer((channel_data[0]), dtype=(np.float32)).reshape(height, width)
+            g = np.frombuffer((channel_data[1]), dtype=(np.float32)).reshape(height, width)
+            b = np.frombuffer((channel_data[2]), dtype=(np.float32)).reshape(height, width)
+            # 将通道堆叠成 HxWx3 的图像数组
+            return np.stack([r, g, b], axis=(-1))
+    if len(channels) >= 2:
+        # 读取 RG 通道 (通常用于光流)
+        if all((c in channels for c in ('R', 'G'))):
+            pixel_type = header["channels"]["R"].type
+            channel_data = exr_file.channels(["R", "G"], pixel_type)
+            r = np.frombuffer((channel_data[0]), dtype=(np.float32)).reshape(height, width)
+            g = np.frombuffer((channel_data[1]), dtype=(np.float32)).reshape(height, width)
+            # 将通道堆叠成 HxWx2 的光流数组
+            return np.stack([r, g], axis=(-1))
+    if len(channels) == 1:
+        # 读取R为深度通道
+         if all((c in channels for c in ('R'))):
+            pixel_type = header["channels"]["R"].type
+            channel_data = exr_file.channels(["R"], pixel_type)
+            r = np.frombuffer((channel_data[0]), dtype=(np.float32)).reshape(height, width)
+            # 将通道堆叠成 HxWx1 的光流数组
+            return np.stack([r], axis=(-1))
+    print(f"{filename} 中的通道不符合标准 (RGB 或 RG)，无法加载。")
+    return
+
+
+### 代码误删重新编写read_exr部分，2025年8月20日 
 def read_gen(file_name, pil=False):
     ext = splitext(file_name)[-1]
-    if ext == '.png' or ext == '.jpeg' or ext == '.ppm' or ext == '.jpg':
+
+    if  ext == '.exr':
+        return readExr(file_name)
+    elif ext == '.png' or ext == '.jpeg' or ext == '.ppm' or ext == '.jpg':
         return Image.open(file_name)
     elif ext == '.bin' or ext == '.raw':
         return np.load(file_name)

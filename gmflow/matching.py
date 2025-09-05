@@ -11,7 +11,7 @@ def global_correlation_softmax(feature0, feature1,
     b, c, h, w = feature0.shape
     feature0 = feature0.view(b, c, -1).permute(0, 2, 1)  # [B, H*W, C]
     feature1 = feature1.view(b, c, -1)  # [B, C, H*W]
-
+    
     correlation = torch.matmul(feature0, feature1).view(b, h, w, h, w) / (c ** 0.5)  # [B, H, W, H, W]
 
     # flow from softmax

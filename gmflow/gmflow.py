@@ -51,14 +51,14 @@ class GMFlow(nn.Module):
         concat = torch.cat((img0, img1), dim=0)  # [2B, C, H, W]
         features = self.backbone(concat)  # list of [2B, C, H, W], resolution from high to low
 
-        # reverse: resolution from low to high
+        # reverse: resolution from low to high 
         features = features[::-1]
-
+        #~ features 是一个只包含一个元素的列表。这个唯一的元素是一个四维张量，形状为 [2*B, 128, H/8, W/8] 2025年9月3日
         feature0, feature1 = [], []
 
         for i in range(len(features)):
             feature = features[i]
-            chunks = torch.chunk(feature, 2, 0)  # tuple
+            chunks = torch.chunk(feature, 2, 0)  # ->tuple, chunks =2 dim = 0 dim0 就是B 这个分块 
             feature0.append(chunks[0])
             feature1.append(chunks[1])
 
@@ -109,19 +109,19 @@ class GMFlow(nn.Module):
 
         assert len(attn_splits_list) == len(corr_radius_list) == len(prop_radius_list) == self.num_scales
 
-        for scale_idx in range(self.num_scales):
+        for scale_idx in range(self.num_scales): #~num_scales=1
             feature0, feature1 = feature0_list[scale_idx], feature1_list[scale_idx]
 
-            if pred_bidir_flow and scale_idx > 0:
+            if pred_bidir_flow and scale_idx > 0: 
                 # predicting bidirectional flow with refinement
                 feature0, feature1 = torch.cat((feature0, feature1), dim=0), torch.cat((feature1, feature0), dim=0)
 
             upsample_factor = self.upsample_factor * (2 ** (self.num_scales - 1 - scale_idx))
-
+            #~ ↓ 将上一尺度的光流放大作为当前尺度的初始估计，使用双线性插值
             if scale_idx > 0:
                 flow = F.interpolate(flow, scale_factor=2, mode='bilinear', align_corners=True) * 2
 
-            if flow is not None:
+            if flow is not None: #~ 特征扭曲
                 flow = flow.detach()
                 feature1 = flow_warp(feature1, flow)  # [B, C, H, W]
 
@@ -129,7 +129,7 @@ class GMFlow(nn.Module):
             corr_radius = corr_radius_list[scale_idx]
             prop_radius = prop_radius_list[scale_idx]
 
-            # add position to features
+            # add position to features #~ feature_channels default=128
             feature0, feature1 = feature_add_position(feature0, feature1, attn_splits, self.feature_channels)
 
             # Transformer
@@ -144,8 +144,9 @@ class GMFlow(nn.Module):
             # flow or residual flow
             flow = flow + flow_pred if flow is not None else flow_pred
 
+            #~ ↓上采样后加入到结果列表 为了效率使用最简单的双线性插值 1 上采样 2025年9月5日
             # upsample to the original resolution for supervison
-            if self.training:  # only need to upsample intermediate flow predictions at training time
+            if self.training:  # only need to upsample intermediate flow predictions at training time 
                 flow_bilinear = self.upsample_flow(flow, None, bilinear=True, upsample_factor=upsample_factor)
                 flow_preds.append(flow_bilinear)
 
@@ -155,12 +156,13 @@ class GMFlow(nn.Module):
             flow = self.feature_flow_attn(feature0, flow.detach(),
                                           local_window_attn=prop_radius > 0,
                                           local_window_radius=prop_radius)
-
+            
+            #~ 2 bilinear 上采样 2025年9月5日
             # bilinear upsampling at training time except the last one
             if self.training and scale_idx < self.num_scales - 1:
                 flow_up = self.upsample_flow(flow, feature0, bilinear=True, upsample_factor=upsample_factor)
                 flow_preds.append(flow_up)
-
+            #~ 3 凸上采样 
             if scale_idx == self.num_scales - 1:
                 flow_up = self.upsample_flow(flow, feature0)
                 flow_preds.append(flow_up)

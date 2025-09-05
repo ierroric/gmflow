@@ -277,10 +277,10 @@ class FeatureTransformer(nn.Module):
 
         b, c, h, w = feature0.shape
         assert self.d_model == c
-
+        #~ feature : [B, C, H, W] → [B, H*W, C]
         feature0 = feature0.flatten(-2).permute(0, 2, 1)  # [B, H*W, C]
         feature1 = feature1.flatten(-2).permute(0, 2, 1)  # [B, H*W, C]
-
+        #~ 计算 swin transformer 的掩码
         if self.attention_type == 'swin' and attn_num_splits > 1:
             # global and refine use different number of splits
             window_size_h = h // attn_num_splits

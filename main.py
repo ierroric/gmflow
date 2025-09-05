@@ -9,10 +9,10 @@ import os
 from data import build_train_dataset
 from gmflow.gmflow import GMFlow
 from loss import flow_loss_func
-from evaluate import (validate_chairs, validate_things, validate_sintel, validate_kitti,
+from evaluate import (validate_fppdic_depth,validate_fppdic,validate_chairs, validate_things, validate_sintel, validate_kitti,
                       create_sintel_submission, create_kitti_submission, inference_on_dir)
 
-from utils.logger import Logger
+from utils.logger import Logger 
 from utils import misc
 from utils.dist_utils import get_dist_info, init_dist, setup_for_distributed
 
@@ -23,17 +23,17 @@ def get_args_parser():
     # dataset
     parser.add_argument('--checkpoint_dir', default='tmp', type=str,
                         help='where to save the training log and models')
-    parser.add_argument('--stage', default='chairs', type=str,
-                        help='training stage')
-    parser.add_argument('--image_size', default=[384, 512], type=int, nargs='+',
-                        help='image size for training')
+    parser.add_argument('--stage', default='fppdic_depth', type=str,
+                        help='training stage') #直接修改默认数据集名字 2025年8月16日
+    parser.add_argument('--image_size', default=[512, 512], type=int, nargs='+',
+                        help='image size for training') # 修改图片数据大小 2025年8月18日
     parser.add_argument('--padding_factor', default=16, type=int,
                         help='the input should be divisible by padding_factor, otherwise do padding')
 
     parser.add_argument('--max_flow', default=400, type=int,
                         help='exclude very large motions during training')
-    parser.add_argument('--val_dataset', default=['chairs'], type=str, nargs='+',
-                        help='validation dataset')
+    parser.add_argument('--val_dataset', default=['fppdic_depth'], type=str, nargs='+',
+                        help='validation dataset') # 验证集的也要修改 2025年8月23日
     parser.add_argument('--with_speed_metric', action='store_true',
                         help='with speed metric when evaluation')
 
@@ -78,7 +78,7 @@ def get_args_parser():
                         help='loss weight')
 
     # evaluation
-    parser.add_argument('--eval', action='store_true')
+    parser.add_argument('--eval', action='store_true') # store_true 是默认false
     parser.add_argument('--save_eval_to_file', action='store_true')
     parser.add_argument('--evaluate_matched_unmatched', action='store_true')
 
@@ -105,7 +105,7 @@ def get_args_parser():
                         help='not save flow as .flo')
 
     # distributed training
-    parser.add_argument('--local_rank', default=0, type=int)
+    parser.add_argument('--local_rank', default=0, type=int) # 代表了第几个gpu
     parser.add_argument('--distributed', action='store_true')
     parser.add_argument('--launcher', default='none', type=str, choices=['none', 'pytorch'])
     parser.add_argument('--gpu_ids', default=0, type=int, nargs='+')
@@ -163,7 +163,7 @@ def main(args):
     if not args.eval and not args.submission and not args.inference_dir:
         print('Model definition:')
         print(model)
-
+    #~ 分布式多卡训练 2025年9月5日
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(
             model.to(device),
@@ -330,7 +330,7 @@ def main(args):
 
         return
 
-    # training datset
+    # training dataset
     train_dataset = build_train_dataset(args)
     print('Number of training images:', len(train_dataset))
 
@@ -442,6 +442,30 @@ def main(args):
 
                 val_results = {}
                 # support validation on multiple datasets
+                
+                if 'fppdic_depth' in args.val_dataset:
+                    results_dict = validate_fppdic_depth(model_without_ddp,
+                                                   with_speed_metric=args.with_speed_metric,
+                                                   attn_splits_list=args.attn_splits_list,
+                                                   corr_radius_list=args.corr_radius_list,
+                                                   prop_radius_list=args.prop_radius_list,
+                                                   )
+                    if args.local_rank == 0:
+                        val_results.update(results_dict)
+
+
+
+                # 新增自建数据集fppdic 基本上就是把chair的用不上的删了一些，以后再这样就直接继承就行2025年8月19日
+                if 'fppdic' in args.val_dataset:
+                    results_dict = validate_fppdic(model_without_ddp,
+                                                   with_speed_metric=args.with_speed_metric,
+                                                   attn_splits_list=args.attn_splits_list,
+                                                   corr_radius_list=args.corr_radius_list,
+                                                   prop_radius_list=args.prop_radius_list,
+                                                   )
+                    if args.local_rank == 0:
+                        val_results.update(results_dict)
+
                 if 'chairs' in args.val_dataset:
                     results_dict = validate_chairs(model_without_ddp,
                                                    with_speed_metric=args.with_speed_metric,
