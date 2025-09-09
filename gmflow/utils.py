@@ -1,6 +1,6 @@
 import torch
-from .position import PositionEmbeddingSine
-
+# from .position import PositionEmbeddingSine
+from position import PositionEmbeddingSine # 别忘了 手动切换 2025年9月8日
 
 def split_feature(feature,
                   num_splits=2,

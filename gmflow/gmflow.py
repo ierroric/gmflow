@@ -8,6 +8,10 @@ from .matching import global_correlation_softmax, local_correlation_softmax
 from .geometry import flow_warp
 from .utils import normalize_img, feature_add_position
 
+#增加自定义上采样部分代码 2025年9月5日 #增加自定义深度头 2025年9月8日
+
+from .fppdecoder import DecoderCup, Outconv
+
 
 class GMFlow(nn.Module):
     def __init__(self,
@@ -38,7 +42,6 @@ class GMFlow(nn.Module):
                                               attention_type=attention_type,
                                               ffn_dim_expansion=ffn_dim_expansion,
                                               )
-
         # flow propagation with self-attn
         self.feature_flow_attn = FeatureFlowAttention(in_channels=feature_channels)
 
@@ -46,13 +49,26 @@ class GMFlow(nn.Module):
         self.upsampler = nn.Sequential(nn.Conv2d(2 + feature_channels, 256, 3, 1, 1),
                                        nn.ReLU(inplace=True),
                                        nn.Conv2d(256, upsample_factor ** 2 * 9, 1, 1, 0))
+        
+        #? fpp decoder #待验证 2025年9月6日 注意写的参数到底合不合适
+        self.fppdecoder = DecoderCup( hidden_size=128, decoder_channels=(128,96,64,16), n_skip=3,skip_channels=[128,96,64,16] )
+        #? fpp 深度头
+        self.fppout10 = Outconv(16,1)
+        self.fppout11 = Outconv(16,1)
 
+
+    # 增加输出skip_feature
     def extract_feature(self, img0, img1):
         concat = torch.cat((img0, img1), dim=0)  # [2B, C, H, W]
-        features = self.backbone(concat)  # list of [2B, C, H, W], resolution from high to low
+        featureall = self.backbone(concat) # list of [2B, C, H, W], resolution from high to low
+        features = featureall[0]
+        skip_feature = featureall[1] # skip_feature 是个list
+        #↑ 由于CNN输出是个list [0]是正向特征 [1]是跳跃特征
 
         # reverse: resolution from low to high 
         features = features[::-1]
+        skip_feature = skip_feature[::-1]
+
         #~ features 是一个只包含一个元素的列表。这个唯一的元素是一个四维张量，形状为 [2*B, 128, H/8, W/8] 2025年9月3日
         feature0, feature1 = [], []
 
@@ -62,7 +78,7 @@ class GMFlow(nn.Module):
             feature0.append(chunks[0])
             feature1.append(chunks[1])
 
-        return feature0, feature1
+        return feature0, feature1, skip_feature
 
     def upsample_flow(self, flow, feature, bilinear=False, upsample_factor=8,
                       ):
@@ -102,14 +118,14 @@ class GMFlow(nn.Module):
 
         img0, img1 = normalize_img(img0, img1)  # [B, 3, H, W]
 
-        # resolution low to high
-        feature0_list, feature1_list = self.extract_feature(img0, img1)  # list of features
+        # resolution low to high #~增加输出skip_feature 2025年9月5日
+        feature0_list, feature1_list,skip_feature = self.extract_feature(img0, img1)  # list of features
 
         flow = None
 
         assert len(attn_splits_list) == len(corr_radius_list) == len(prop_radius_list) == self.num_scales
 
-        for scale_idx in range(self.num_scales): #~num_scales=1
+        for scale_idx in range(self.num_scales): #~num_scales=1 只循环一次
             feature0, feature1 = feature0_list[scale_idx], feature1_list[scale_idx]
 
             if pred_bidir_flow and scale_idx > 0: 
@@ -134,6 +150,8 @@ class GMFlow(nn.Module):
 
             # Transformer
             feature0, feature1 = self.transformer(feature0, feature1, attn_num_splits=attn_splits)
+            #~ 保存transformer 的输出来送到fpp的分支去，把两个特征并起来用，skip_feature 也是并起来的 在Batch维度并起来的
+            featureFpp= torch.cat((feature0 , feature1), dim=0)
 
             # correlation and softmax
             if corr_radius == -1:  # global matching
@@ -166,6 +184,16 @@ class GMFlow(nn.Module):
             if scale_idx == self.num_scales - 1:
                 flow_up = self.upsample_flow(flow, feature0)
                 flow_preds.append(flow_up)
+
+            #↑ 光流部分结束，↓ 下面是深度估计部分 # 2025年9月8日不知道写的对不对，反正很恶心
+            #~ featureFPP 是两个feature在batch上的拼接 skip_feature 是3个feature的list 从头到尾是 从底到
+            featureFpp = self.fppdecoder(featureFpp,skip_feature)
+            feature10,feature11 = torch.chunk(featureFpp,chunks=2,dim=0)
+
+            #加两个深度头 2025年9月8日
+            depth10 = self.fppout10(feature10)
+            depth11 = self.fppout11(feature11)
+
 
         results_dict.update({'flow_preds': flow_preds})
 
