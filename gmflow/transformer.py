@@ -2,7 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import split_feature, merge_splits
+from .utils import split_feature, merge_splits 
+#↓ 为了单独测试模块输出与形状使用 
+#from utils import split_feature, merge_splits # 别忘了 手动切换 2025年9月8日 
+#↑ 为了单独测试模块输出与形状使用
+
 
 
 def single_head_full_attention(q, k, v):
@@ -407,3 +411,23 @@ class FeatureFlowAttention(nn.Module):
         out = torch.matmul(prob, flow_window).view(b, h, w, 2).permute(0, 3, 1, 2).contiguous()  # [B, 2, H, W]
 
         return out
+
+
+
+
+# ↓ 为了测试形状单独使用 2025年9月8日
+if __name__ == "__main__":
+    from print_model_info import print_conv_kernel_info
+    from torchinfo import summary
+    
+    batchsize ,channel, h,w= 12, 128,64, 64
+    model = FeatureTransformer()
+    attn_num_splits = 2 
+
+
+    feature00 = torch.randn(batchsize,channel,h,w)
+    feature01 = torch.randn(batchsize,channel,h,w)
+
+    summary(model, input_data={'feature0': feature00, 'feature1': feature01, 'attn_num_splits': attn_num_splits},
+            depth=5,col_names=["input_size", "output_size", "num_params", "kernel_size"],verbose=1)
+    #print_conv_kernel_info(model)

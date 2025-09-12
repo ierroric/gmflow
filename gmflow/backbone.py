@@ -1,7 +1,9 @@
 import torch.nn as nn
 
 from .trident_conv import MultiScaleTridentConv
-
+#↓ 为了单独测试模块输出与形状使用 别忘了 手动切换 2025年9月8日
+#from trident_conv import MultiScaleTridentConv 
+#↑ 为了单独测试模块输出与形状使用
 
 class ResidualBlock(nn.Module):
     # in_planes: 输入特征图的通道数（planes 在这里是通道 channel 的意思）。
@@ -50,7 +52,7 @@ class CNNEncoder(nn.Module):
 
         feature_dims = [64, 96, 128]
 
-        self.conv1 = nn.Conv2d(3, feature_dims[0], kernel_size=7, stride=2, padding=3, bias=False)  # 1/2
+        self.conv1 = nn.Conv2d(3, feature_dims[0], kernel_size=7, stride=2, padding=3, bias=False)  # 1/2 #todo
         self.norm1 = norm_layer(feature_dims[0])
         self.relu1 = nn.ReLU(inplace=True)
 
@@ -100,15 +102,20 @@ class CNNEncoder(nn.Module):
 
         self.in_planes = dim
         return nn.Sequential(*layers)
-
+    
+#修改增加 skip_feature ，输出为一个list，[0]是正常的前向输出 [1]是跳跃输出2025年9月5日
     def forward(self, x):
+        skip_feature=[]
         x = self.conv1(x)
         x = self.norm1(x)
         x = self.relu1(x)
 
         x = self.layer1(x)  # 1/2
+        skip_feature.append(x)
         x = self.layer2(x)  # 1/4
+        skip_feature.append(x)
         x = self.layer3(x)  # 1/8 or 1/4
+        skip_feature.append(x)
 
         x = self.conv2(x)
 
@@ -117,4 +124,14 @@ class CNNEncoder(nn.Module):
         else:
             out = [x]
 
-        return out
+        return [out,skip_feature]
+
+
+# ↓ 为了测试形状单独使用 2025年9月8日
+if __name__ == "__main__":
+    from print_model_info import print_conv_kernel_info
+    from torchinfo import summary
+    # bactsize = 12
+    model = CNNEncoder()
+    summary(model, input_size=(3, 512, 512))
+    #print_conv_kernel_info(model)

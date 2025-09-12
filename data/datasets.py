@@ -33,7 +33,7 @@ class FlowDataset(data.Dataset):
         self.extra_info = []
 
         self.load_occlusion = load_occlusion
-        self.occ_list = []
+        self.occ_list = [] #这里也应该是遮挡 2025年9月9日
 
     def __getitem__(self, index):
 
@@ -267,6 +267,98 @@ class HD1K(FlowDataset):
 
             seq_ix += 1
 
+#同时获取图片 光流 深度 的数据集 2025年9月10日
+class dicfppflowdepth(FlowDataset):
+    """
+    dic处理光流，fpp处理深度，在fppdicdepth的基础上进行修改 2025年9月10日
+    """
+    def __init__(self, aug_params=None, 
+                 root = r'../dataset',
+                 index_ext='.txt',
+                 split='train'
+                 ):
+        super(dicfppflowdepth,self).__init__(aug_params)
+        #根目录
+        self.root = root
+        self.depth_list = [] 
+        #train 和val索引路径
+        index = split + index_ext
+        index_file_path = osp.join(self.root,index)
+        if not osp.exists(index_file_path):
+            raise FileNotFoundError(f"Index file not found: {index_file_path}")
+        
+        #读索引并生成image flow depth list
+        with open(index_file_path, 'r') as f:
+            for line in f:
+                # 移除换行符并分离逗号
+                line = line.replace('\\', '/')
+                parts = line.strip().split(',')
+                
+               #相对地址join到根目录中
+                img1_path = osp.join(self.root,parts[0])
+                img2_path = osp.join(self.root,parts[1])
+                flow_path = osp.join(self.root,parts[2])
+                depth1_path = osp.join(self.root,parts[3])
+                depth2_path = osp.join(self.root,parts[4])
+
+                self.image_list.append([img1_path,img2_path])
+                self.flow_list.append(flow_path)
+                self.depth_list.append([depth1_path, depth2_path])
+            
+        print(f"Loaded {len(self.image_list)} samples from index : {split}") 
+
+
+    def __getitem__(self, index):
+        """
+        Overrides the parent __getitem__ to correctly handle float32 EXR data.
+        """
+        # 我不太清楚下面seed代码的逻辑 先暂时放过来
+        if not self.init_seed:
+            worker_info = torch.utils.data.get_worker_info()
+            if worker_info is not None:
+                torch.manual_seed(worker_info.id)
+                np.random.seed(worker_info.id)
+                random.seed(worker_info.id)
+                self.init_seed = True
+
+        index = index % len(self.image_list) # 这种计数方式真的很有趣
+        #读exr文件
+        img1 = frame_utils.read_gen(self.image_list[index][0])
+        img2 = frame_utils.read_gen(self.image_list[index][1])
+        flow = frame_utils.read_gen(self.flow_list[index])
+        depth1 = frame_utils.read_gen(self.depth_list[index][0])
+        depth2 = frame_utils.read_gen(self.depth_list[index][1])
+
+        #数据都是float32 比基类的uint8
+        img1 = np.array(img1).astype(np.float32)
+        img2 = np.array(img2).astype(np.float32)
+        flow = np.array(flow).astype(np.float32)
+        depth1= np.array(depth1).astype(np.float32)
+        depth2= np.array(depth2).astype(np.float32)
+
+        #由于img1和img2 都只是单通道 只取第一个通道 (R通道) 并增加一个维度，使其形状变为 (H, W, 1)
+        #不保证正确
+        #img1 = img1[:, :, 0:1] 
+        #img2 = img2[:, :, 0:1]
+    
+        # 暂时不处理增广 2025年9月10日 得好好考虑本身是3维度的增强处理1维度的信息时是否需要特判
+        if self.augmentor is not None:
+            pass
+            # img1, img2, flow = self.augmentor(img1, img2, flow)
+
+        # 主要时 hwc 转换为chw
+        img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
+        img2 = torch.from_numpy(img2).permute(2, 0, 1).float()
+        flow = torch.from_numpy(flow).permute(2, 0, 1).float()
+        depth1 = torch.from_numpy(depth1).permute(2, 0, 1).float()
+        depth2 = torch.from_numpy(depth2).permute(2, 0, 1).float()
+
+        # Create a validity mask. Here we assume all pixels are valid. # 2025年9月10日得搞明白这个mask是干啥用的
+        valid = (flow[0].abs() < 1000) & (flow[1].abs() < 1000)
+        #return img1, img2, flow
+        return img1, img2, flow, valid.float(), depth1, depth2
+
+
 #处理.exr的图片和光流2025年8月16日 2025年8月19日增加验证数据和训练数据的区分
 class fppdicflow(FlowDataset):
     """
@@ -465,6 +557,9 @@ def build_train_dataset(args):
     elif args.stage == 'fppdic_depth':
         aug_params = None
         train_dataset = fppdicdepth(aug_params)
+    elif args.stage == 'dicfppflowdepth':
+        aug_params = None
+        train_dataset = dicfppflowdepth(aug_params)
 
 
 

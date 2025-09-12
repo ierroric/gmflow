@@ -8,7 +8,7 @@ import os
 
 from data import build_train_dataset
 from gmflow.gmflow import GMFlow
-from loss import flow_loss_func
+from loss import (flow_loss_func,berhu_loss)
 from evaluate import (validate_fppdic_depth,validate_fppdic,validate_chairs, validate_things, validate_sintel, validate_kitti,
                       create_sintel_submission, create_kitti_submission, inference_on_dir)
 
@@ -23,8 +23,8 @@ def get_args_parser():
     # dataset
     parser.add_argument('--checkpoint_dir', default='tmp', type=str,
                         help='where to save the training log and models')
-    parser.add_argument('--stage', default='fppdic_depth', type=str,
-                        help='training stage') #直接修改默认数据集名字 2025年8月16日
+    parser.add_argument('--stage', default='dicfppflowdepth', type=str,
+                        help='training stage') #!测试集 直接修改默认数据集名字 2025年8月16日
     parser.add_argument('--image_size', default=[512, 512], type=int, nargs='+',
                         help='image size for training') # 修改图片数据大小 2025年8月18日
     parser.add_argument('--padding_factor', default=16, type=int,
@@ -32,14 +32,14 @@ def get_args_parser():
 
     parser.add_argument('--max_flow', default=400, type=int,
                         help='exclude very large motions during training')
-    parser.add_argument('--val_dataset', default=['fppdic_depth'], type=str, nargs='+',
-                        help='validation dataset') # 验证集的也要修改 2025年8月23日
+    parser.add_argument('--val_dataset', default=['dicfppflowdepth'], type=str, nargs='+',
+                        help='validation dataset') #! 验证集 的也要修改 2025年8月23日
     parser.add_argument('--with_speed_metric', action='store_true',
                         help='with speed metric when evaluation')
 
     # training
     parser.add_argument('--lr', default=4e-4, type=float)
-    parser.add_argument('--batch_size', default=12, type=int)
+    parser.add_argument('--batch_size', default=8, type=int) #~ 从12 调整到8 2025年9月10日
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
     parser.add_argument('--grad_clip', default=1.0, type=float)
@@ -376,7 +376,7 @@ def main(args):
             train_sampler.set_epoch(epoch)
 
         for i, sample in enumerate(train_loader):
-            img1, img2, flow_gt, valid = [x.to(device) for x in sample]
+            img1, img2, flow_gt, valid, depth1_gt, depth2_gt = [x.to(device) for x in sample]    #~ 2025年9月10日 在这里修改输出的是什么东西
 
             results_dict = model(img1, img2,
                                  attn_splits_list=args.attn_splits_list,
@@ -384,20 +384,32 @@ def main(args):
                                  prop_radius_list=args.prop_radius_list,
                                  )
 
-            flow_preds = results_dict['flow_preds']
+            flow_preds = results_dict['flow_preds'] #?为什么你在这里长度是2呢 2025年9月11日
+            depth1_pred = results_dict['depth1_pred']
+            depth2_pred = results_dict['depth2_pred']
 
-            loss, metrics = flow_loss_func(flow_preds, flow_gt, valid,
+            flow_loss, metrics = flow_loss_func(flow_preds, flow_gt, valid,
                                            gamma=args.gamma,
                                            max_flow=args.max_flow,
                                            )
+            
+            #~2025年9月11日 在这里来写深度的loss
+            depth1_loss = berhu_loss(depth1_pred,depth1_gt,threshold=0.2)
+            depth2_loss = berhu_loss(depth2_pred, depth2_gt, threshold=0.2)
+            #print("depth\n")
 
-            if isinstance(loss, float):
+            if isinstance(flow_loss, float):
                 continue
 
-            if torch.isnan(loss):
+            if torch.isnan(flow_loss):
                 continue
 
-            metrics.update({'total_loss': loss.item()})
+            #? 这里多任务loss该如何处理 2025年9月11日
+            loss = flow_loss + (depth1_loss + depth2_loss)*0.5
+            #? 这里多任务loss该如何处理 2025年9月11日
+
+            metrics.update({'total_loss': loss.item(),'flow_loss':flow_loss.item(),
+                            'depth1':depth1_loss.item(),'depth2':depth2_loss.item()})
 
             # more efficient zero_grad
             for param in model_without_ddp.parameters():
