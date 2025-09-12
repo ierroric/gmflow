@@ -12,6 +12,10 @@ from .utils import normalize_img, feature_add_position
 
 from .fppdecoder import DecoderCup, Outconv
 
+#增加自定义上采样部分代码 2025年9月5日 #增加自定义深度头 2025年9月8日
+
+from .fppdecoder import DecoderCup, Outconv
+
 
 class GMFlow(nn.Module):
     def __init__(self,
@@ -58,8 +62,21 @@ class GMFlow(nn.Module):
 
 
     # 增加输出skip_feature
+        
+        #? fpp decoder #待验证 2025年9月6日 注意写的参数到底合不合适
+        self.fppdecoder = DecoderCup( hidden_size=128, decoder_channels=(128,96,64,16), n_skip=3,skip_channels=[128,96,64,16] )
+        #? fpp 深度头
+        self.fppout10 = Outconv(16,1)
+        self.fppout11 = Outconv(16,1)
+
+
+    # 增加输出skip_feature
     def extract_feature(self, img0, img1):
         concat = torch.cat((img0, img1), dim=0)  # [2B, C, H, W]
+        featureall = self.backbone(concat) # list of [2B, C, H, W], resolution from high to low
+        features = featureall[0]
+        skip_feature = featureall[1] # skip_feature 是个list
+        #↑ 由于CNN输出是个list [0]是正向特征 [1]是跳跃特征
         featureall = self.backbone(concat) # list of [2B, C, H, W], resolution from high to low
         features = featureall[0]
         skip_feature = featureall[1] # skip_feature 是个list
@@ -67,6 +84,8 @@ class GMFlow(nn.Module):
 
         # reverse: resolution from low to high 
         features = features[::-1]
+        skip_feature = skip_feature[::-1]
+
         skip_feature = skip_feature[::-1]
 
         #~ features 是一个只包含一个元素的列表。这个唯一的元素是一个四维张量，形状为 [2*B, 128, H/8, W/8] 2025年9月3日
@@ -78,6 +97,7 @@ class GMFlow(nn.Module):
             feature0.append(chunks[0])
             feature1.append(chunks[1])
 
+        return feature0, feature1, skip_feature
         return feature0, feature1, skip_feature
 
     def upsample_flow(self, flow, feature, bilinear=False, upsample_factor=8,
@@ -120,11 +140,14 @@ class GMFlow(nn.Module):
 
         # resolution low to high #~增加输出skip_feature 2025年9月5日
         feature0_list, feature1_list,skip_feature = self.extract_feature(img0, img1)  # list of features
+        # resolution low to high #~增加输出skip_feature 2025年9月5日
+        feature0_list, feature1_list,skip_feature = self.extract_feature(img0, img1)  # list of features
 
         flow = None
 
         assert len(attn_splits_list) == len(corr_radius_list) == len(prop_radius_list) == self.num_scales
 
+        for scale_idx in range(self.num_scales): #~num_scales=1 只循环一次
         for scale_idx in range(self.num_scales): #~num_scales=1 只循环一次
             feature0, feature1 = feature0_list[scale_idx], feature1_list[scale_idx]
 
